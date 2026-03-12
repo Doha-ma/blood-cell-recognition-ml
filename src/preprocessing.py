@@ -1,49 +1,130 @@
-import os
-import shutil
+﻿"""Dataset splitting utilities for the blood cell project."""
+
+from __future__ import annotations
+
+import argparse
 import random
+import shutil
+from pathlib import Path
+from typing import Dict
 
-# Original dataset folder containing the 8 classes
-source_dir = "C:\\Ai_project\\blood-cell-recognition-ml\\bloodcells_dataset"  # dataset path
+VALID_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
-# New folder structure
-base_dir = "dataset"
 
-train_dir = os.path.join(base_dir, "train")
-val_dir = os.path.join(base_dir, "validation")
-test_dir = os.path.join(base_dir, "test")
+def _list_class_dirs(source_dir: Path) -> list[Path]:
+    if not source_dir.exists():
+        raise FileNotFoundError(f"Source directory {source_dir} does not exist")
+    if not source_dir.is_dir():
+        raise NotADirectoryError(f"Source path {source_dir} is not a directory")
 
-# 8 classes
-classes = ["basophil", "eosinophil", "erythroblast", "ig",
-           "lymphocyte", "monocyte", "neutrophil", "platelet"]
+    dirs = sorted([item for item in source_dir.iterdir() if item.is_dir()])
+    if not dirs:
+        raise ValueError(f"No class folders found in {source_dir}")
+    return dirs
 
-# Create train/validation/test folders
-for folder in [train_dir, val_dir, test_dir]:
-    for cls in classes:
-        os.makedirs(os.path.join(folder, cls), exist_ok=True)
 
-# Split images for each class
-for cls in classes:
-    images = os.listdir(os.path.join(source_dir, cls))
-    random.shuffle(images)
+def _filter_images(class_dir: Path) -> list[Path]:
+    return [img for img in class_dir.iterdir() if img.suffix.lower() in VALID_EXTENSIONS]
 
-    train_split = int(0.7 * len(images))
-    val_split = int(0.85 * len(images))
 
-    train_images = images[:train_split]
-    val_images = images[train_split:val_split]
-    test_images = images[val_split:]
+def _prepare_output(output_dir: Path, clear_output: bool) -> None:
+    if output_dir.exists() and clear_output:
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy images to new folders
-    for img in train_images:
-        shutil.copy(os.path.join(source_dir, cls, img),
-                    os.path.join(train_dir, cls, img))
 
-    for img in val_images:
-        shutil.copy(os.path.join(source_dir, cls, img),
-                    os.path.join(val_dir, cls, img))
+def split_dataset(
+    source_dir: str | Path,
+    output_dir: str | Path = "data/raw",
+    train_ratio: float = 0.7,
+    val_ratio: float = 0.15,
+    seed: int = 42,
+    clear_output: bool = False,
+) -> Dict[str, Dict[str, int]]:
+    """Split the dataset into train/validation/test folders."""
 
-    for img in test_images:
-        shutil.copy(os.path.join(source_dir, cls, img),
-                    os.path.join(test_dir, cls, img))
+    if not 0 < train_ratio < 1:
+        raise ValueError("train_ratio must be between 0 and 1")
+    if not 0 <= val_ratio < 1:
+        raise ValueError("val_ratio must be between 0 and 1")
+    if train_ratio + val_ratio >= 1:
+        raise ValueError("train_ratio + val_ratio must be < 1")
 
-print("Dataset has been split into train, validation, and test for 8 classes.")
+    source = Path(source_dir)
+    output = Path(output_dir)
+    _prepare_output(output, clear_output)
+
+    rng = random.Random(seed)
+    class_dirs = _list_class_dirs(source)
+
+    summary: Dict[str, Dict[str, int]] = {"train": {}, "validation": {}, "test": {}}
+
+    for cls_dir in class_dirs:
+        images = _filter_images(cls_dir)
+        if not images:
+            raise ValueError(f"No images found in {cls_dir}")
+        rng.shuffle(images)
+
+        n_images = len(images)
+        train_end = int(n_images * train_ratio)
+        val_end = train_end + int(n_images * val_ratio)
+
+        splits = {
+            "train": images[:train_end],
+            "validation": images[train_end:val_end],
+            "test": images[val_end:],
+        }
+
+        for split_name, files in splits.items():
+            dest_dir = output / split_name / cls_dir.name
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            for src in files:
+                shutil.copy2(src, dest_dir / src.name)
+            summary[split_name][cls_dir.name] = len(files)
+
+    return summary
+
+
+def _format_summary(summary: Dict[str, Dict[str, int]]) -> str:
+    lines = []
+    for split, classes in summary.items():
+        total = sum(classes.values())
+        lines.append(f"{split} ({total} images):")
+        for cls_name, count in sorted(classes.items()):
+            lines.append(f"  - {cls_name}: {count}")
+    return "\n".join(lines)
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Split a blood cell dataset into standard folders.")
+    parser.add_argument("--source-dir", required=True, help="Path containing the eight class folders")
+    parser.add_argument("--output-dir", default="data/raw", help="Destination directory for the splits")
+    parser.add_argument("--train-ratio", type=float, default=0.7, help="Fraction of images for training")
+    parser.add_argument("--val-ratio", type=float, default=0.15, help="Fraction of images for validation")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for shuffling")
+    parser.add_argument(
+        "--clear-output",
+        action="store_true",
+        help="Remove the output directory before copying files",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+
+    summary = split_dataset(
+        source_dir=args.source_dir,
+        output_dir=args.output_dir,
+        train_ratio=args.train_ratio,
+        val_ratio=args.val_ratio,
+        seed=args.seed,
+        clear_output=args.clear_output,
+    )
+    print(_format_summary(summary))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

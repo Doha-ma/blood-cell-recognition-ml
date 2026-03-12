@@ -20,6 +20,12 @@ dist/
 .ipynb_checkpoints/
 
 # IDE settings
+
+
+
+
+
+
 .idea/
 *.iml
 

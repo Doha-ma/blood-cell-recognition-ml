@@ -1,0 +1,13 @@
+﻿# Core ML stack
+tensorflow>=2.15
+numpy>=1.26
+matplotlib>=3.8
+scikit-learn>=1.4
+opencv-python>=4.9
+Pillow>=10.2
+
+# Data access
+kaggle>=1.6
+
+# Tooling / tests
+pytest>=8.0
