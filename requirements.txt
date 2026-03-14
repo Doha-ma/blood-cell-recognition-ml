@@ -11,3 +11,6 @@ kaggle>=1.6
 
 # Tooling / tests
 pytest>=8.0
+
+# Web app
+flask>=3.0
