@@ -16,7 +16,8 @@ test_generator = test_datagen.flow_from_directory(
     "data/raw/test",
     target_size=(128,128),
     batch_size=32,
-    class_mode='categorical',
+    
+    class_mode='sparse',
     shuffle=False
 )
 
